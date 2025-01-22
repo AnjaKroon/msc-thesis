@@ -1,7 +1,7 @@
 # Time varying Graphical LASSO for dynamic connectivity estimation
 import numpy as np
 from sklearn.covariance import graphical_lasso
-from syntheticDataGen import generate_data_matrices 
+from MyDataGen.py import generate_data_matrices 
 
 def time_varying_graphical_lasso(Y, alpha=0.1, beta=0.05, max_iter=10, tol=1e-4):
     """
