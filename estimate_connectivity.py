@@ -8,9 +8,9 @@ import scipy as sp
 import networkx as nx
 import matplotlib.pyplot as plt
 from scipy.optimize import minimize
-from syntheticDataGen import generate_data_matrices 
+from MyDataGen import generate_data_matrices 
 import time
-from GLASSO import time_varying_graphical_lasso
+from MyDataGen_GGLASSOSolver import time_varying_graphical_lasso
 from gglasso.problem import glasso_problem
 import seaborn as sns
 from scipy.stats import rankdata 

@@ -1,149 +1,89 @@
-# Run GGLASSO after creating the initial graph with the initialize_graph function from syntheticDataGen.py
-
+# Time varying Graphical LASSO for dynamic connectivity estimation
 import numpy as np
-import networkx as nx
-import matplotlib.pyplot as plt
-import seaborn as sns
-from problem import glasso_problem
-
 from sklearn.covariance import graphical_lasso
-from syntheticDataGen import generate_data_matrices, initialize_graph, printPretty
-from basic_linalg import trp
+from MyDataGen import generate_data_matrices 
+
+def time_varying_graphical_lasso(Y, alpha=0.1, beta=0.05, max_iter=10, tol=1e-4):
+    """
+    Perform Time-Varying Graphical Lasso to estimate time-varying weighted adjacency matrices.
+    
+    Parameters:
+        Y (numpy.ndarray): Data matrix of shape (N, T), where N is the number of nodes, and T is the number of time steps.
+        alpha (float): L1 regularization parameter for graphical lasso.
+        beta (float): Regularization parameter for temporal smoothness between consecutive time steps.
+        max_iter (int): Maximum number of iterations for optimization.
+        tol (float): Convergence tolerance for optimization.
+    
+    Returns:
+        A_matrices (list): List of weighted adjacency matrices for each time step.
+    """
+    N, T = Y.shape
+    A_matrices = [None] * T
+    S = [np.cov(Y[:, t:t + 2]) for t in range(T - 1)]  
+
+    
+    for t in range(T):
+        emp_cov = np.cov(Y[:, max(0, t - 1):min(T, t + 2)])  
+        _, A = graphical_lasso(emp_cov, alpha=alpha)
+        A_matrices[t] = A
+
+    # Optimization loop
+    for it in range(max_iter):
+        max_diff = 0
+        for t in range(1, T):
+            # Smoothness regularization between A_t and A_{t-1}
+            S_t = np.cov(Y[:, max(0, t - 1):min(T, t + 2)])
+            _, A_new = graphical_lasso(S_t + beta * A_matrices[t - 1], alpha=alpha)
+            diff = np.linalg.norm(A_new - A_matrices[t], ord='fro')
+            max_diff = max(max_diff, diff)
+            A_matrices[t] = A_new
+
+        if max_diff < tol:
+            break
+
+    return A_matrices
+
 
 if __name__ == "__main__":
     
     NODES = 10
-    SAMPLES = 200
+    SAMPLES = 500
     K_PARAM = 1
     EPSILON = 1e-10
     VALUE_THRESHOLD = 1e10
     ALPHA = 0.95
     NOISE_MEAN, NOISE_COVAR = 1, 0.5
     INITIAL_WEIGHT_MEAN, INITIAL_WEIGHT_VAR = 1, 0.01
-    # INITIAL_SIGNAL_MEAN, INITIAL_SIGNAL_VAR = 1, 0.01
-    INITIAL_SIGNAL_MEAN, INITIAL_SIGNAL_VAR = 20, 5
+    INITIAL_SIGNAL_MEAN, INITIAL_SIGNAL_VAR = 1, 0.01
     DECREASE = 0.8
     INCREASE = 1.2
 
-    # GENERATING SIGMA AND THETA
-
-    Adj = np.zeros((NODES,NODES))
-    Sigma = np.zeros((NODES,NODES))
-
-    # Create the initial graph
-    G, pos, y_init, Adj, test_flag = initialize_graph(NODES, SAMPLES, K_PARAM, EPSILON, VALUE_THRESHOLD, ALPHA, NOISE_MEAN, NOISE_COVAR, INITIAL_WEIGHT_MEAN, INITIAL_WEIGHT_VAR, INITIAL_SIGNAL_MEAN, INITIAL_SIGNAL_VAR, DECREASE, INCREASE)
-
-    # symmetrize the adjacency matrix
-    Adj = .5 * (Adj + Adj.T)
-
-    print("Ground truth adjacency matrix")
-    printPretty(Adj)
-
-    # Calculate Sigma
-    # There could be an alpha and beta parameter here 
-    Sigma = np.linalg.pinv((np.eye(NODES) + 0.5* Adj), hermitian = True)
-    Theta = np.linalg.pinv(Sigma, hermitian = True)
-
-    # GENERATING SAMPLE COVARIANCE MATRIX -- RECOPY THIS
-    rng = np.random.default_rng()
-
-    # p are the number of nodes
-    p = NODES
-    # N are number of samples
-    N = SAMPLES
+    # Y_static, Y_dynamic_piecewiseSlow, Y_dynamic_smooth = generate_data_matrices(N=10, M=10, K=1)
+    Generated_Y_static_SEM, \
+        Generated_Y_static_SVARM, \
+        Generated_Y_dynamic_fixedF, \
+        Generated_Y_dynamicSVARM_fixedF, \
+        Generated_Y_dynamic_piecewiseSlow_SEM, \
+        Generated_Y_dynamic_piecewiseMedium_SEM, \
+        Generated_Y_dynamic_piecewiseFast_SEM, \
+        Generated_Y_dynamic_piecewiseSlow_SVARM, \
+        Generated_Y_dynamic_piecewiseMedium_SVARM, \
+        Generated_Y_dynamic_piecewiseFast_SVARM = generate_data_matrices(N=3, M=10, K=1, EP=1e-10, \
+                                                                     VT=1e10, AL=0.9, NM=5, NC=0.1,\
+                                                                         IWM=5, IWV=3, \
+                                                                            ISM=20, ISV=5, DF=0.97, IF=1.03)
     
-        
-    if len(Sigma.shape) == 2:
-        assert abs(Sigma - Sigma.T).max() <= 1e-10
-        (p,p) = Sigma.shape
-        # Uses the random number generator rng to generate N samples from a multivariate normal distribution with: Mean vector: 0 and Covariance matrix: Sigma
-        sample = rng.multivariate_normal(np.zeros(p), Sigma, N).T
-        print("Shape of sample: ", sample.shape)
-        S = np.cov(sample, bias = True)
-        
-    else:
-        assert abs(Sigma - trp(Sigma)).max() <= 1e-10 # forcing symmetric
-        print("K is, ", K)
-        (K,p,p) = Sigma.shape
+    alpha = 0.1
+    beta = 0.05
 
-        sample = np.zeros((K,p,N))
-        for k in np.arange(K):
-            sample[k,:,:] = rng.multivariate_normal(np.zeros(p), Sigma[k,:,:], N).T
+    # Generated_Y_static_SEM -- ill conditioning of the covariance matrix
     
-        S = np.zeros((K,p,p))
-        for k in np.arange(K):
-            # normalize with N --> bias = True
-            S[k,:,:] = np.cov(sample[k,:,:], bias = True)
     
-    print("Shape of empirical covariance matrix: ", S.shape)
-    print("Shape of the sample array: ", sample.shape)
-
-    # DRAW TRUE GRAPH
-
-    G = nx.from_numpy_array(Adj)
-    # pos = nx.drawing.layout.spring_layout(G, seed = 1234)
-
-    # plt.figure()
-    # nx.draw_networkx(G, pos = pos, node_color = "darkblue", edge_color = "darkblue", font_color = 'white', with_labels = True)
-
-    # RUN GLASSO
-    P = glasso_problem(S, N, reg_params = {'lambda1': 0.05}, latent = False, do_scaling = False)
-    print(P)
-
-    # DO MODEL SELECTION
-    lambda1_range = np.logspace(0, -3, 30)
-    modelselect_params = {'lambda1_range': lambda1_range}
-
-    P.model_selection(modelselect_params = modelselect_params, method = 'eBIC', gamma = 0.5)
-
-    # regularization parameters are set to the best ones found during model selection
-    print(P.reg_params)
-
-    # PLOT RECOVERED GRAPH
-    #tmp = P.modelselect_stats
-    sol = P.solution.precision_
-    P.solution.calc_adjacency(t = 1e-4)
-
-    # Sparsify solution based on setting values below 0.05 to 0
-    sol = np.where(np.abs(sol) < 0.1, 0, sol)
+    A_matrices = time_varying_graphical_lasso(Generated_Y_static_SEM, alpha=alpha, beta=beta)
 
 
-    fig, axs = plt.subplots(2,2, figsize=(10,8))
-    node_size = 100
-    font_size = 9
-
-    nx.draw_networkx(G, pos = pos, node_size = node_size, node_color = "darkblue", edge_color = "darkblue", \
-                    font_size = font_size, font_color = 'white', with_labels = True, ax = axs[0,0])
-
-    axs[0,0].axis('off')
-    axs[0,0].set_title("True graph")
-
-    print("Recovered adjacency matrix")
-    printPretty(P.solution.adjacency_)
-
-    G1 = nx.from_numpy_array(P.solution.adjacency_)
-    nx.draw_networkx(G1, pos = pos, node_size = node_size, node_color = "peru", edge_color = "peru", \
-                font_size = font_size, font_color = 'white', with_labels = True, ax = axs[0,1])
-    
-    axs[0,1].axis('off')
-    axs[0,1].set_title("Recovered graph")
-
-    sns.heatmap(Theta, cmap = "coolwarm", vmin = -1.0, vmax = 1.0, linewidth = .5, square = True, cbar = False, \
-                xticklabels = [], yticklabels = [], ax = axs[1,0])
-    axs[1,0].set_title("True precision matrix")
-
-    sns.heatmap(sol, cmap = "coolwarm", vmin = -1.0, vmax = 1.0, linewidth = .5, square = True, cbar = False, \
-                xticklabels = [], yticklabels = [], ax = axs[1,1])
-    axs[1,1].set_title("Recovered precision matrix")
-
-    plt.show()
-
-    print("True precision matrix")
-    printPretty(Theta)
-
-    print("Recovered precision matrix")
-    printPretty(sol)
-    
 
 
+    for t, A in enumerate(A_matrices):
+        print(f"Adjacency matrix at time {t}:\n{np.round(A, 2)}\n")
 
